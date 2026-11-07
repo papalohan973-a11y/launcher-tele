@@ -1337,7 +1337,9 @@ jobs:
         run: |
           set -o pipefail
           if ! gradle assembleRelease testReleaseUnitTest --no-daemon --console=plain 2>&1 | tee build.log; then
-            { grep -E "^e: " build.log | sed -E 's#^e: file://.*/java/#e: #' ; grep -A6 "What went wrong" build.log ; grep -E "AAPT|error:" build.log ; } | head -60 > errors.txt
+            set +e +o pipefail
+            { grep -E "^e: " build.log | sed -E 's#^e: file://.*/java/#e: #' ; grep -A8 "What went wrong" build.log ; grep -E "AAPT|error:|FAILED|Could not|not found" build.log ; } | grep -v "^\s*at " | head -60 > errors.txt
+            if [ ! -s errors.txt ]; then grep -v "^\s*at " build.log | tail -40 > errors.txt; fi
             {
               echo "## Erreurs NOVA TV"
               echo "Copiez ce bloc et envoyez-le a Claude."
