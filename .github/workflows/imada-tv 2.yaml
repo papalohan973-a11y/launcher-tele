@@ -1,0 +1,1832 @@
+name: IMADA TV - compiler et publier
+
+# Fichier unique : il crée tout le projet IMADA TV v2.0, compile l'APK
+# et le publie avec un lien direct fixe pour l'appli Downloader.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/imada-tv.yml'
+      - '.github/workflows/imada-tv.yaml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Créer le projet IMADA TV
+        run: |
+          mkdir -p imada && cd imada
+          mkdir -p app/src/main/res/values app/src/main/res/drawable app/src/main/java/tv/imada/app
+          cat > settings.gradle.kts <<'IMADA_EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name = "IMADA-TV"
+          include(":app")
+          IMADA_EOF
+          cat > build.gradle.kts <<'IMADA_EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+          }
+          IMADA_EOF
+          cat > gradle.properties <<'IMADA_EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          IMADA_EOF
+          cat > app/build.gradle.kts <<'IMADA_EOF'
+          plugins {
+              id("com.android.application")
+          }
+
+          android {
+              namespace = "tv.imada.app"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "tv.imada.app"
+                  minSdk = 23
+                  targetSdk = 28
+                  versionCode = 2
+                  versionName = "2.0"
+              }
+
+              // Clé fixe : chaque nouvelle version s'installe par-dessus l'ancienne,
+              // sans devoir désinstaller (les paramètres et favoris sont conservés).
+              signingConfigs {
+                  create("imada") {
+                      storeFile = file("imada.keystore")
+                      storePassword = "imadatv"
+                      keyAlias = "imada"
+                      keyPassword = "imadatv"
+                  }
+              }
+
+              buildTypes {
+                  getByName("debug") {
+                      signingConfig = signingConfigs.getByName("imada")
+                  }
+                  getByName("release") {
+                      isMinifyEnabled = false
+                      signingConfig = signingConfigs.getByName("imada")
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              lint {
+                  abortOnError = false
+                  checkReleaseBuilds = false
+              }
+          }
+          IMADA_EOF
+          cat > app/src/main/AndroidManifest.xml <<'IMADA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-feature android:name="android.software.leanback" android:required="false" />
+              <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:label="IMADA TV"
+                  android:icon="@drawable/ic_launcher"
+                  android:banner="@drawable/banner"
+                  android:theme="@style/ImadaTheme"
+                  android:hardwareAccelerated="true"
+                  android:usesCleartextTraffic="false">
+
+                  <!-- Accueil IMADA : peut remplacer l'écran d'accueil de la télé (zéro pub) -->
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTask"
+                      android:screenOrientation="landscape"
+                      android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                          <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.HOME" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                      </intent-filter>
+                  </activity>
+
+                  <activity
+                      android:name=".SessionActivity"
+                      android:exported="false"
+                      android:screenOrientation="landscape" />
+
+                  <activity
+                      android:name=".SettingsActivity"
+                      android:exported="false"
+                      android:screenOrientation="landscape"
+                      android:windowSoftInputMode="adjustPan" />
+
+                  <activity
+                      android:name=".NewsActivity"
+                      android:exported="false"
+                      android:screenOrientation="landscape"
+                      android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize" />
+              </application>
+          </manifest>
+          IMADA_EOF
+          cat > app/src/main/res/values/styles.xml <<'IMADA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="ImadaTheme" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+                  <item name="android:windowBackground">@android:color/black</item>
+                  <item name="android:colorAccent">#E8B84A</item>
+                  <item name="android:windowAnimationStyle">@android:style/Animation.Activity</item>
+              </style>
+          </resources>
+          IMADA_EOF
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'IMADA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="96dp"
+              android:height="96dp"
+              android:viewportWidth="48"
+              android:viewportHeight="48">
+              <path android:fillColor="#0B0F1A"
+                  android:pathData="M24,1 A23,23 0 1,1 23.99,1 Z" />
+              <path android:strokeColor="#E8B84A" android:strokeWidth="2.4"
+                  android:pathData="M24,7 A17,17 0 1,1 23.99,7 Z" />
+              <path android:strokeColor="#F6E3A8" android:strokeWidth="3.6"
+                  android:strokeLineCap="round"
+                  android:pathData="M24,15 L24,33" />
+          </vector>
+          IMADA_EOF
+          cat > app/src/main/res/drawable/banner.xml <<'IMADA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="320dp"
+              android:height="180dp"
+              android:viewportWidth="320"
+              android:viewportHeight="180">
+              <path android:fillColor="#0B0F1A" android:pathData="M0,0 L320,0 L320,180 L0,180 Z" />
+              <path android:strokeColor="#E8B84A" android:strokeWidth="6"
+                  android:pathData="M48,64 A26,26 0 1,1 47.99,64 Z" />
+              <path android:strokeColor="#E8B84A" android:strokeWidth="8"
+                  android:strokeLineCap="round" android:strokeLineJoin="round"
+                  android:pathData="M100,62 L100,118
+                      M116,118 L116,62 L136,94 L156,62 L156,118
+                      M172,118 L190,62 L208,118 M178,100 L202,100
+                      M224,62 L224,118 L240,118 Q262,118 262,90 Q262,62 240,62 Z
+                      M276,118 L294,62 L312,118 M282,100 L306,100" />
+          </vector>
+          IMADA_EOF
+          cat > app/src/main/java/tv/imada/app/AppsRepo.java <<'IMADA_EOF'
+          package tv.imada.app;
+
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.content.pm.ResolveInfo;
+          import android.graphics.drawable.Drawable;
+
+          import java.text.Collator;
+          import java.util.ArrayList;
+          import java.util.Collections;
+          import java.util.LinkedHashMap;
+          import java.util.List;
+          import java.util.Locale;
+          import java.util.Map;
+
+          /** Liste des applications installées sur la télé. */
+          final class AppsRepo {
+
+              static final class App {
+                  final String pkg, label;
+                  final Drawable icon;
+                  App(String pkg, String label, Drawable icon) { this.pkg = pkg; this.label = label; this.icon = icon; }
+              }
+
+              private AppsRepo() {}
+
+              static List<App> load(Context c) {
+                  PackageManager pm = c.getPackageManager();
+                  Map<String, App> map = new LinkedHashMap<>();
+                  addAll(c, pm, map, Intent.CATEGORY_LEANBACK_LAUNCHER);
+                  addAll(c, pm, map, Intent.CATEGORY_LAUNCHER);
+                  List<App> out = new ArrayList<>(map.values());
+                  Collator col = Collator.getInstance(Locale.FRANCE);
+                  Collections.sort(out, (a, b) -> col.compare(a.label, b.label));
+                  return out;
+              }
+
+              private static void addAll(Context c, PackageManager pm, Map<String, App> map, String category) {
+                  Intent i = new Intent(Intent.ACTION_MAIN);
+                  i.addCategory(category);
+                  List<ResolveInfo> list;
+                  try { list = pm.queryIntentActivities(i, 0); } catch (Exception e) { return; }
+                  for (ResolveInfo ri : list) {
+                      String pkg = ri.activityInfo.packageName;
+                      if (pkg.equals(c.getPackageName()) || map.containsKey(pkg)) continue;
+                      String label = String.valueOf(ri.loadLabel(pm));
+                      Drawable icon;
+                      try { icon = ri.loadIcon(pm); } catch (Exception e) { icon = null; }
+                      map.put(pkg, new App(pkg, label, icon));
+                  }
+              }
+
+              static boolean launch(Context c, String pkg) {
+                  PackageManager pm = c.getPackageManager();
+                  Intent i = pm.getLeanbackLaunchIntentForPackage(pkg);
+                  if (i == null) i = pm.getLaunchIntentForPackage(pkg);
+                  if (i == null) return false;
+                  i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                  try { c.startActivity(i); return true; } catch (Exception e) { return false; }
+              }
+          }
+          IMADA_EOF
+          cat > app/src/main/java/tv/imada/app/EarthRenderer.java <<'IMADA_EOF'
+          package tv.imada.app;
+
+          import android.graphics.Bitmap;
+
+          /**
+           * Planète Terre rendue pixel par pixel : continents placés à leurs vraies positions,
+           * océans avec profondeur, déserts, forêts, calottes glaciaires, nuages qui tournent
+           * indépendamment, reflet du soleil sur l'océan, lumières des villes côté nuit
+           * et halo d'atmosphère. Inclinaison de l'axe : 23,4°.
+           */
+          final class EarthRenderer {
+
+              static final int TW = 512, TH = 256;
+
+              private static volatile boolean ready = false;
+              private static boolean started = false;
+              private static int[] tex;        // couleur du sol
+              private static byte[] ocean;     // 1 = océan
+              private static byte[] lights;    // lumières des villes
+              private static byte[] clouds;    // densité des nuages
+
+              // Continents : longitude, latitude, rayon en longitude, rayon en latitude (degrés)
+              private static final float[][] LAND = {
+                      {-100, 47, 30, 16}, {-88, 35, 14, 12}, {-150, 64, 16, 7}, {-118, 60, 22, 9}, {-95, 18, 10, 6},
+                      {-84, 11, 5, 5}, {-75, 70, 20, 7}, {-42, 72, 13, 9},
+                      {-60, -8, 16, 17}, {-64, -32, 9, 15}, {-70, -47, 4, 8}, {-45, -5, 9, 8},
+                      {14, 50, 16, 7}, {16, 63, 7, 8}, {-4, 40, 5, 4}, {-2, 54, 3, 4}, {28, 46, 10, 6},
+                      {12, 22, 24, 10}, {20, 5, 18, 10}, {27, -14, 12, 15}, {38, 7, 6, 6}, {47, -19, 2.5f, 6},
+                      {45, 23, 9, 8}, {55, 33, 9, 6},
+                      {90, 50, 40, 13}, {105, 30, 18, 12}, {115, 64, 42, 8}, {78, 21, 8, 10}, {102, 15, 6, 8},
+                      {116, 32, 10, 10}, {138, 37, 3, 6}, {160, 64, 12, 6}, {65, 44, 12, 7},
+                      {115, -2, 15, 4}, {114, 1, 5, 4}, {142, -5, 8, 3}, {122, 10, 3, 6},
+                      {134, -25, 17, 11}, {172, -42, 2, 5}
+              };
+
+              static boolean isReady() { return ready; }
+
+              /** Génère les textures une seule fois, en arrière-plan. */
+              static synchronized void prepareAsync() {
+                  if (started) return;
+                  started = true;
+                  Thread th = new Thread(EarthRenderer::generate, "imada-earth");
+                  th.setPriority(Thread.NORM_PRIORITY - 1);
+                  th.start();
+              }
+
+              private static void generate() {
+                  int[] t = new int[TW * TH];
+                  byte[] oc = new byte[TW * TH];
+                  byte[] li = new byte[TW * TH];
+                  byte[] cl = new byte[TW * TH];
+                  for (int y = 0; y < TH; y++) {
+                      float lat = 90f - (y + 0.5f) / TH * 180f;
+                      float alat = Math.abs(lat);
+                      for (int x = 0; x < TW; x++) {
+                          float lon = (x + 0.5f) / TW * 360f - 180f;
+                          float nx = (float) x / TW, ny = (float) y / TH;
+                          // déformation du domaine : côtes découpées, formes naturelles
+                          float wl = lon + (fbm(nx * 6, ny * 3, 6, 5, 31) - 0.5f) * 34f;
+                          float wa = lat + (fbm(nx * 6, ny * 3, 6, 5, 37) - 0.5f) * 18f;
+                          float field = -1f;
+                          for (float[] b : LAND) {
+                              float dl = wl - b[0];
+                              if (dl > 180) dl -= 360;
+                              if (dl < -180) dl += 360;
+                              float dx = dl / b[2], dy = (wa - b[1]) / b[3];
+                              float f = 1f - (dx * dx + dy * dy);
+                              if (f > field) field = f;
+                          }
+                          float n = fbm(nx * 16, ny * 8, 16, 6, 11);
+                          field += (n - 0.5f) * 1.25f;
+                          if (lat < -67) field = Math.max(field, 0.35f + (n - 0.5f));
+                          float m = fbm(nx * 10, ny * 5, 10, 5, 23);          // humidité
+                          float d = fbm(nx * 48, ny * 24, 48, 3, 41);         // relief fin
+                          int i = y * TW + x;
+                          int col;
+                          if (field > 0) {
+                              boolean snow = lat < -62 || alat > 74 || (alat > 62 && m > 0.52f);
+                              if (snow) {
+                                  col = mix(rgb(214, 224, 236), rgb(246, 250, 255), d);
+                              } else {
+                                  int forest = mix(rgb(30, 62, 28), rgb(64, 92, 44), m);
+                                  if (alat < 12) forest = mix(rgb(20, 56, 24), rgb(38, 76, 32), m);
+                                  if (alat > 52) forest = mix(forest, rgb(92, 96, 70), (alat - 52) / 12f);
+                                  float belt = (float) Math.exp(-Math.pow((alat - 24f) / 9f, 2));
+                                  float dry = Math.max(0f, Math.min(1f, (0.62f - m) * 4f)) * belt;
+                                  int desert = mix(rgb(206, 174, 124), rgb(170, 122, 78), d);
+                                  col = mix(forest, desert, dry);
+                                  if (field > 0.45f && d > 0.6f) col = mix(col, rgb(112, 98, 82), 0.5f);
+                                  col = shade(col, 0.82f + 0.36f * d);
+                                  if (alat < 62 && hash(x * 7, y * 13, 5) > 0.87f + (Math.abs(alat - 40) / 220f))
+                                      li[i] = (byte) (150 + (int) (hash(x, y, 9) * 105));
+                              }
+                              oc[i] = 0;
+                          } else {
+                              float depth = Math.min(1f, -field / 0.3f);
+                              col = mix(rgb(22, 78, 124), rgb(5, 22, 58), (float) Math.sqrt(depth));
+                              if (alat > 72) col = mix(col, rgb(200, 215, 230), Math.min(1f, (alat - 72) / 6f));
+                              oc[i] = 1;
+                          }
+                          t[i] = col;
+                          float cw = fbm(nx * 12 + (fbm(nx * 4, ny * 4, 4, 3, 55) - 0.5f) * 2.4f, ny * 6, 12, 6, 77);
+                          float band = 1f - 0.22f * (float) Math.exp(-Math.pow((alat - 24f) / 10f, 2));
+                          float cv = (cw * band - 0.5f) * 3.6f;
+                          cl[i] = (byte) (int) (235 * Math.max(0f, Math.min(1f, cv)));
+                      }
+                  }
+                  tex = t; ocean = oc; lights = li; clouds = cl;
+                  ready = true;
+              }
+
+              // ---------- rendu de la sphère ----------
+
+              final int size;
+              final Bitmap bitmap;
+              private final int[] px;
+              private final int[] idx, v;
+              private final float[] u0, diff, term, spec, fres, edge;
+
+              EarthRenderer(int size) {
+                  this.size = size;
+                  bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+                  px = new int[size * size];
+                  int count = 0;
+                  float half = size / 2f;
+                  for (int y = 0; y < size; y++)
+                      for (int x = 0; x < size; x++) {
+                          float nx = (x + 0.5f - half) / half, ny = (y + 0.5f - half) / half;
+                          if (nx * nx + ny * ny < 1f) count++;
+                      }
+                  idx = new int[count]; v = new int[count];
+                  u0 = new float[count]; diff = new float[count]; term = new float[count];
+                  spec = new float[count]; fres = new float[count]; edge = new float[count];
+
+                  double tilt = Math.toRadians(23.4);
+                  float ct = (float) Math.cos(tilt), st = (float) Math.sin(tilt);
+                  float lx = -0.78f, ly = 0.30f, lz = 0.55f;
+                  float ll = (float) Math.sqrt(lx * lx + ly * ly + lz * lz);
+                  lx /= ll; ly /= ll; lz /= ll;
+                  float hx = lx, hy = ly, hz = lz + 1f;
+                  float hl = (float) Math.sqrt(hx * hx + hy * hy + hz * hz);
+                  hx /= hl; hy /= hl; hz /= hl;
+
+                  int k = 0;
+                  for (int y = 0; y < size; y++)
+                      for (int x = 0; x < size; x++) {
+                          float nx = (x + 0.5f - half) / half, ny = -(y + 0.5f - half) / half;
+                          float r2 = nx * nx + ny * ny;
+                          if (r2 >= 1f) continue;
+                          float nz = (float) Math.sqrt(1f - r2);
+                          float ex = nx * ct + ny * st, ey = -nx * st + ny * ct;
+                          double lat = Math.asin(Math.max(-1f, Math.min(1f, ey)));
+                          double lon = Math.atan2(ex, nz);
+                          idx[k] = y * size + x;
+                          u0[k] = (float) ((lon / (2 * Math.PI) + 0.5) * TW);
+                          v[k] = Math.max(0, Math.min(TH - 1, (int) ((0.5 - lat / Math.PI) * TH)));
+                          float d = nx * lx + ny * ly + nz * lz;
+                          diff[k] = d;
+                          term[k] = smooth(-0.14f, 0.22f, d);
+                          float sh = Math.max(0f, nx * hx + ny * hy + nz * hz);
+                          spec[k] = (float) Math.pow(sh, 48) * 0.75f;
+                          fres[k] = (float) Math.pow(1f - nz, 2.6);
+                          edge[k] = Math.min(1f, (1f - (float) Math.sqrt(r2)) * half * 1.2f);
+                          k++;
+                      }
+              }
+
+              /** @param rot rotation de la Terre (en texels), @param cloudRot rotation des nuages */
+              Bitmap render(float rot, float cloudRot) {
+                  if (!ready) return null;
+                  final int[] tx = tex; final byte[] oc = ocean, li = lights, cl = clouds;
+                  final int mask = TW - 1;
+                  for (int k = 0; k < idx.length; k++) {
+                      int row = v[k] * TW;
+                      int ti = row + (((int) (u0[k] + rot)) & mask);
+                      int ci = row + (((int) (u0[k] + cloudRot)) & mask);
+                      int c = tx[ti];
+                      float r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+                      float d = diff[k], tm = term[k];
+                      float lit = 0.05f + 1.08f * Math.max(0f, d) * (0.6f + 0.4f * tm);
+                      r *= lit; g *= lit; b *= lit;
+                      if (oc[ti] != 0) { float s = spec[k] * 255f * tm; r += s; g += s * 0.95f; b += s * 0.85f; }
+                      float a = (cl[ci] & 255) / 255f;
+                      if (a > 0f) {
+                          float cw = 250f * (0.04f + 1.0f * Math.max(0f, d));
+                          r += (cw - r) * a; g += (cw - g) * a; b += (cw * 1.02f - b) * a;
+                      }
+                      float L = (li[ti] & 255) / 255f * (1f - tm) * (1f - a * 0.8f);
+                      if (L > 0f) { r += 255f * L; g += 178f * L; b += 96f * L; }
+                      float f = fres[k] * (0.18f + 0.95f * tm);
+                      r += 70f * f; g += 150f * f; b += 255f * f;
+                      int ir = r > 255 ? 255 : (int) r, ig = g > 255 ? 255 : (int) g, ib = b > 255 ? 255 : (int) b;
+                      int al = (int) (255 * edge[k]);
+                      px[idx[k]] = (al << 24) | (ir << 16) | (ig << 8) | ib;
+                  }
+                  bitmap.setPixels(px, 0, size, 0, 0, size, size);
+                  return bitmap;
+              }
+
+              // ---------- bruit ----------
+
+              private static float hash(int x, int y, int seed) {
+                  int h = x * 374761393 + y * 668265263 + seed * 1442695041;
+                  h = (h ^ (h >>> 13)) * 1274126177;
+                  h ^= h >>> 16;
+                  return (h & 0xFFFFFF) / (float) 0xFFFFFF;
+              }
+
+              private static int wrap(int a, int p) { int m = a % p; return m < 0 ? m + p : m; }
+
+              private static float vnoise(float x, float y, int period, int seed) {
+                  int xi = (int) Math.floor(x), yi = (int) Math.floor(y);
+                  float fx = x - xi, fy = y - yi;
+                  int x0 = wrap(xi, period), x1 = wrap(xi + 1, period);
+                  float a = hash(x0, yi, seed), b = hash(x1, yi, seed);
+                  float c = hash(x0, yi + 1, seed), d = hash(x1, yi + 1, seed);
+                  float sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+                  float top = a + (b - a) * sx, bot = c + (d - c) * sx;
+                  return top + (bot - top) * sy;
+              }
+
+              private static float fbm(float x, float y, int period, int oct, int seed) {
+                  float s = 0, amp = 0.5f, norm = 0;
+                  for (int i = 0; i < oct; i++) {
+                      s += amp * vnoise(x, y, period, seed + i * 17);
+                      norm += amp;
+                      x *= 2; y *= 2; period *= 2; amp *= 0.5f;
+                  }
+                  return s / norm;
+              }
+
+              private static float smooth(float e0, float e1, float x) {
+                  float t = Math.max(0f, Math.min(1f, (x - e0) / (e1 - e0)));
+                  return t * t * (3 - 2 * t);
+              }
+
+              private static int rgb(int r, int g, int b) { return (r << 16) | (g << 8) | b; }
+
+              private static int shade(int c, float k) {
+                  int r = Math.min(255, (int) (((c >> 16) & 255) * k));
+                  int g = Math.min(255, (int) (((c >> 8) & 255) * k));
+                  int b = Math.min(255, (int) ((c & 255) * k));
+                  return rgb(r, g, b);
+              }
+
+              private static int mix(int c1, int c2, float t) {
+                  t = Math.max(0f, Math.min(1f, t));
+                  int r = (int) (((c1 >> 16) & 255) * (1 - t) + ((c2 >> 16) & 255) * t);
+                  int g = (int) (((c1 >> 8) & 255) * (1 - t) + ((c2 >> 8) & 255) * t);
+                  int b = (int) ((c1 & 255) * (1 - t) + (c2 & 255) * t);
+                  return rgb(r, g, b);
+              }
+          }
+          IMADA_EOF
+          cat > app/src/main/java/tv/imada/app/MainActivity.java <<'IMADA_EOF'
+          package tv.imada.app;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.widget.FrameLayout;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+
+          /** Accueil IMADA : choix de la session (3 univers visuels distincts). */
+          public class MainActivity extends Activity {
+
+              private static final int GOLD = 0xFFE8B84A;
+
+              private LinearLayout cardsRow;
+              private TextView clock, date;
+              private final View[] cards = new View[Prefs.SESSIONS];
+              private int lastFocus = 0;
+              private final Handler handler = new Handler(Looper.getMainLooper());
+              private final Runnable tick = new Runnable() {
+                  @Override public void run() {
+                      clock.setText(Ui.clock());
+                      date.setText(Ui.date());
+                      handler.postDelayed(this, 15000);
+                  }
+              };
+
+              @Override protected void onCreate(Bundle state) {
+                  super.onCreate(state);
+                  FrameLayout root = new FrameLayout(this);
+                  root.addView(new SceneView(this, Prefs.SCENE_STARS, GOLD, 0.6f, false),
+                          new FrameLayout.LayoutParams(-1, -1));
+
+                  LinearLayout col = new LinearLayout(this);
+                  col.setOrientation(LinearLayout.VERTICAL);
+                  col.setPadding(Ui.dp(this, 56), Ui.dp(this, 34), Ui.dp(this, 56), Ui.dp(this, 26));
+                  root.addView(col, new FrameLayout.LayoutParams(-1, -1));
+
+                  // En-tête
+                  LinearLayout top = new LinearLayout(this);
+                  top.setGravity(Gravity.CENTER_VERTICAL);
+                  LinearLayout brand = new LinearLayout(this);
+                  brand.setOrientation(LinearLayout.VERTICAL);
+                  TextView logo = Ui.text(this, "IMADA", 46, GOLD, true);
+                  logo.setLetterSpacing(0.35f);
+                  brand.addView(logo);
+                  brand.addView(Ui.text(this, "Choisissez votre session", 16, 0xCCFFFFFF, false));
+                  top.addView(brand, new LinearLayout.LayoutParams(0, -2, 1f));
+                  LinearLayout time = new LinearLayout(this);
+                  time.setOrientation(LinearLayout.VERTICAL);
+                  time.setGravity(Gravity.END);
+                  clock = Ui.text(this, Ui.clock(), 42, 0xFFFFFFFF, false);
+                  date = Ui.text(this, Ui.date(), 15, 0xCCFFFFFF, false);
+                  time.addView(clock);
+                  time.addView(date);
+                  top.addView(time);
+                  col.addView(top);
+
+                  // Cartes des sessions
+                  cardsRow = new LinearLayout(this);
+                  cardsRow.setGravity(Gravity.CENTER);
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, 0, 1f);
+                  col.addView(cardsRow, lp);
+
+                  TextView hint = Ui.text(this, "◀ ▶ choisir   ·   OK entrer   ·   OK maintenu : paramètres de la session",
+                          14, 0x99FFFFFF, false);
+                  hint.setGravity(Gravity.CENTER);
+                  col.addView(hint, new LinearLayout.LayoutParams(-1, -2));
+
+                  setContentView(root);
+              }
+
+              @Override protected void onResume() {
+                  super.onResume();
+                  buildCards();
+                  handler.post(tick);
+              }
+
+              @Override protected void onPause() {
+                  super.onPause();
+                  handler.removeCallbacks(tick);
+              }
+
+              private void buildCards() {
+                  cardsRow.removeAllViews();
+                  for (int i = 0; i < Prefs.SESSIONS; i++) {
+                      cards[i] = makeCard(i);
+                      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.dp(this, 250), Ui.dp(this, 310));
+                      lp.setMargins(Ui.dp(this, 18), 0, Ui.dp(this, 18), 0);
+                      cardsRow.addView(cards[i], lp);
+                  }
+                  cards[lastFocus].requestFocus();
+              }
+
+              private View makeCard(int id) {
+                  Prefs pr = new Prefs(this, id);
+                  int accent = pr.accent();
+                  LinearLayout card = new LinearLayout(this);
+                  card.setOrientation(LinearLayout.VERTICAL);
+                  card.setPadding(Ui.dp(this, 10), Ui.dp(this, 10), Ui.dp(this, 10), Ui.dp(this, 14));
+                  float r = Ui.dp(this, 22);
+                  Ui.focusFx(card, card,
+                          Ui.box(0xB30A0E1A, r, 0x33FFFFFF, Ui.dp(this, 1)),
+                          Ui.box(0xE60A0E1A, r, accent, Ui.dp(this, 3)), 1.08f);
+
+                  FrameLayout preview = new FrameLayout(this);
+                  preview.setBackground(Ui.box(0xFF000000, Ui.dp(this, 16), 0, 0));
+                  preview.setClipToOutline(true);
+                  preview.addView(new SceneView(this, pr.scene(), accent, pr.speed(), true), new FrameLayout.LayoutParams(-1, -1));
+                  card.addView(preview, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+                  TextView name = Ui.text(this, pr.name() + (pr.lockEntry() ? "  🔒" : ""), 22, 0xFFFFFFFF, true);
+                  name.setPadding(Ui.dp(this, 8), Ui.dp(this, 12), 0, 0);
+                  name.setSingleLine(true);
+                  card.addView(name);
+                  TextView style = Ui.text(this, "Session " + Prefs.SCENES[pr.scene()], 14, accent, false);
+                  style.setPadding(Ui.dp(this, 8), Ui.dp(this, 2), 0, 0);
+                  card.addView(style);
+
+                  card.setOnClickListener(v -> {
+                      lastFocus = id;
+                      if (pr.lockEntry()) Ui.askPin(this, pr.pin(), "Session " + pr.name(), () -> openSession(id), null);
+                      else openSession(id);
+                  });
+                  card.setOnLongClickListener(v -> {
+                      lastFocus = id;
+                      startActivity(new Intent(this, SettingsActivity.class).putExtra("id", id));
+                      return true;
+                  });
+                  return card;
+              }
+
+              private void openSession(int id) {
+                  startActivity(new Intent(this, SessionActivity.class).putExtra("id", id));
+              }
+
+              /** Écran d'accueil de la télé : le bouton Retour ne ferme pas l'accueil. */
+              @Override public void onBackPressed() { }
+          }
+          IMADA_EOF
+          cat > app/src/main/java/tv/imada/app/NewsActivity.java <<'IMADA_EOF'
+          package tv.imada.app;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.view.Gravity;
+          import android.webkit.WebView;
+          import android.widget.FrameLayout;
+          import android.widget.TextView;
+
+          /** Actualités en plein écran, avec le son. Retour = revenir à la session. */
+          public class NewsActivity extends Activity {
+
+              private WebView web;
+
+              @Override protected void onCreate(Bundle state) {
+                  super.onCreate(state);
+                  FrameLayout root = new FrameLayout(this);
+                  root.setBackgroundColor(0xFF000000);
+                  String url = getIntent().getStringExtra("url");
+                  if (url == null || url.isEmpty()) url = Prefs.DEFAULT_NEWS;
+                  try {
+                      web = new WebView(this);
+                      SessionActivity.setupWeb(web);
+                      // format téléphone centré, comme l'appli
+                      int h = getResources().getDisplayMetrics().heightPixels;
+                      FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams((int) (h * 0.5625f), -1, Gravity.CENTER);
+                      root.addView(web, lp);
+                      web.loadUrl(url);
+                      web.requestFocus();
+                  } catch (Throwable e) {
+                      TextView t = Ui.text(this, "Le lecteur web n'est pas disponible sur cette télé.", 20, 0xFFFFFFFF, false);
+                      t.setGravity(Gravity.CENTER);
+                      root.addView(t, new FrameLayout.LayoutParams(-1, -1));
+                  }
+                  TextView hint = Ui.text(this, "▲ ▼ vidéo précédente / suivante   ·   Retour : quitter", 14, 0x99FFFFFF, false);
+                  FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
+                  hl.setMargins(Ui.dp(this, 30), 0, 0, Ui.dp(this, 20));
+                  root.addView(hint, hl);
+                  setContentView(root);
+              }
+
+              @Override protected void onPause() { super.onPause(); if (web != null) web.onPause(); }
+              @Override protected void onResume() { super.onResume(); if (web != null) web.onResume(); }
+
+              @Override protected void onDestroy() {
+                  if (web != null) { web.destroy(); web = null; }
+                  super.onDestroy();
+              }
+          }
+          IMADA_EOF
+          cat > app/src/main/java/tv/imada/app/Prefs.java <<'IMADA_EOF'
+          package tv.imada.app;
+
+          import android.content.Context;
+          import android.content.SharedPreferences;
+
+          import java.util.ArrayList;
+          import java.util.List;
+
+          /** Réglages propres à chaque session (0, 1, 2). Chaque session a ses propres valeurs. */
+          public final class Prefs {
+
+              public static final int SESSIONS = 3;
+
+              public static final int SCENE_GLOBE = 0, SCENE_NEON = 1, SCENE_HOLO = 2, SCENE_AURORA = 3, SCENE_STARS = 4;
+              public static final String[] SCENES = {"Globe Terre", "Néon", "Holographique", "Aurore boréale", "Étoiles"};
+
+              public static final String[] ACCENT_NAMES = {"Or", "Cyan", "Magenta", "Vert émeraude", "Blanc"};
+              public static final int[] ACCENTS = {0xFFE8B84A, 0xFF35E0FF, 0xFFFF3EB5, 0xFF34E39A, 0xFFF2F4F8};
+
+              public static final String[] SPEEDS = {"Lente", "Normale", "Rapide"};
+              public static final float[] SPEED_VALUES = {0.5f, 1f, 1.8f};
+
+              public static final String[] SHAPES = {"Ronde", "Carrée arrondie"};
+
+              public static final String DEFAULT_NEWS = "https://www.tiktok.com/tag/actualite";
+
+              private static final String[] DEFAULT_NAMES = {"Arnaud", "Vikiana", "Invités"};
+              private static final int[] DEFAULT_SCENE = {SCENE_GLOBE, SCENE_NEON, SCENE_HOLO};
+              private static final int[] DEFAULT_ACCENT = {0, 2, 1};
+
+              private final SharedPreferences sp;
+              public final int id;
+
+              public Prefs(Context c, int id) {
+                  this.sp = c.getSharedPreferences("imada", Context.MODE_PRIVATE);
+                  this.id = Math.max(0, Math.min(SESSIONS - 1, id));
+              }
+
+              private String k(String n) { return "s" + id + "_" + n; }
+
+              public String name() { return sp.getString(k("name"), DEFAULT_NAMES[id]); }
+              public void setName(String v) { sp.edit().putString(k("name"), v).apply(); }
+
+              public int scene() { return clamp(sp.getInt(k("scene"), DEFAULT_SCENE[id]), SCENES.length); }
+              public void setScene(int v) { sp.edit().putInt(k("scene"), v).apply(); }
+
+              public int accentIndex() { return clamp(sp.getInt(k("accent"), DEFAULT_ACCENT[id]), ACCENTS.length); }
+              public int accent() { return ACCENTS[accentIndex()]; }
+              public void setAccent(int v) { sp.edit().putInt(k("accent"), v).apply(); }
+
+              public int speedIndex() { return clamp(sp.getInt(k("speed"), 1), SPEEDS.length); }
+              public float speed() { return SPEED_VALUES[speedIndex()]; }
+              public void setSpeed(int v) { sp.edit().putInt(k("speed"), v).apply(); }
+
+              public int shape() { return clamp(sp.getInt(k("shape"), 0), SHAPES.length); }
+              public void setShape(int v) { sp.edit().putInt(k("shape"), v).apply(); }
+
+              public boolean newsOn() { return sp.getBoolean(k("news"), true); }
+              public void setNewsOn(boolean v) { sp.edit().putBoolean(k("news"), v).apply(); }
+
+              public String newsUrl() { return sp.getString(k("newsUrl"), DEFAULT_NEWS); }
+              public void setNewsUrl(String v) { sp.edit().putString(k("newsUrl"), v).apply(); }
+
+              public String pin() { return sp.getString(k("pin"), ""); }
+              public void setPin(String v) { sp.edit().putString(k("pin"), v).apply(); }
+
+              public boolean lockEntry() { return sp.getBoolean(k("lock"), false); }
+              public void setLockEntry(boolean v) { sp.edit().putBoolean(k("lock"), v).apply(); }
+
+              public List<String> favorites() {
+                  List<String> out = new ArrayList<>();
+                  String raw = sp.getString(k("fav"), "");
+                  for (String s : raw.split(",")) if (!s.isEmpty()) out.add(s);
+                  return out;
+              }
+
+              public boolean toggleFavorite(String pkg) {
+                  List<String> f = favorites();
+                  boolean added;
+                  if (f.contains(pkg)) { f.remove(pkg); added = false; } else { f.add(pkg); added = true; }
+                  StringBuilder b = new StringBuilder();
+                  for (String s : f) { if (b.length() > 0) b.append(','); b.append(s); }
+                  sp.edit().putString(k("fav"), b.toString()).apply();
+                  return added;
+              }
+
+              public void clearFavorites() { sp.edit().remove(k("fav")).apply(); }
+
+              private static int clamp(int v, int n) { return v < 0 || v >= n ? 0 : v; }
+          }
+          IMADA_EOF
+          cat > app/src/main/java/tv/imada/app/SceneView.java <<'IMADA_EOF'
+          package tv.imada.app;
+
+          import android.content.Context;
+          import android.graphics.Bitmap;
+          import android.graphics.Canvas;
+          import android.graphics.Color;
+          import android.graphics.LinearGradient;
+          import android.graphics.Paint;
+          import android.graphics.Path;
+          import android.graphics.RadialGradient;
+          import android.graphics.Rect;
+          import android.graphics.RectF;
+          import android.graphics.Shader;
+          import android.os.SystemClock;
+          import android.view.View;
+
+          import java.util.Random;
+
+          /** Fond animé d'une session : Globe Terre, Néon, Holographique, Aurore boréale, Étoiles. */
+          public class SceneView extends View {
+
+              private int scene, accent;
+              private float speed;
+              private final boolean compact;
+              private final long start = SystemClock.uptimeMillis();
+
+              private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+              private final Paint bmpPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
+              private final Path path = new Path();
+              private final RectF rf = new RectF();
+              private final Rect dst = new Rect();
+
+              private final float[] sx, sy, ss, sph;      // étoiles
+              private final float[] qx, qs, qo;           // particules
+              private final float[] ridge;                // relief des montagnes
+              private EarthRenderer earth;
+
+              private int w, h;
+              private Shader bgShader, haloShader, sunShader;
+              private Path hexPath;
+
+              public SceneView(Context c, int scene, int accent, float speed, boolean compact) {
+                  super(c);
+                  this.scene = scene; this.accent = accent; this.speed = speed; this.compact = compact;
+                  Random r = new Random(7);
+                  int n = compact ? 70 : 240;
+                  sx = new float[n]; sy = new float[n]; ss = new float[n]; sph = new float[n];
+                  for (int i = 0; i < n; i++) {
+                      sx[i] = r.nextFloat(); sy[i] = r.nextFloat();
+                      ss[i] = 0.4f + r.nextFloat() * r.nextFloat() * 2.2f; sph[i] = r.nextFloat() * 6.28f;
+                  }
+                  int m = compact ? 16 : 46;
+                  qx = new float[m]; qs = new float[m]; qo = new float[m];
+                  for (int i = 0; i < m; i++) { qx[i] = r.nextFloat(); qs[i] = 0.03f + r.nextFloat() * 0.07f; qo[i] = r.nextFloat(); }
+                  ridge = new float[33];
+                  for (int i = 0; i < ridge.length; i++) ridge[i] = 0.35f + r.nextFloat() * 0.65f;
+                  if (scene == Prefs.SCENE_GLOBE) EarthRenderer.prepareAsync();
+              }
+
+              public void configure(int scene, int accent, float speed) {
+                  this.scene = scene; this.accent = accent; this.speed = speed;
+                  if (scene == Prefs.SCENE_GLOBE) EarthRenderer.prepareAsync();
+                  buildShaders();
+                  invalidate();
+              }
+
+              @Override protected void onSizeChanged(int nw, int nh, int ow, int oh) {
+                  w = nw; h = nh;
+                  buildShaders();
+              }
+
+              private void buildShaders() {
+                  if (w == 0 || h == 0) return;
+                  hexPath = null;
+                  switch (scene) {
+                      case Prefs.SCENE_GLOBE:
+                      case Prefs.SCENE_STARS:
+                          bgShader = new LinearGradient(0, 0, 0, h, 0xFF010309, 0xFF070C22, Shader.TileMode.CLAMP);
+                          break;
+                      case Prefs.SCENE_NEON:
+                          bgShader = new LinearGradient(0, 0, 0, h * 0.6f, 0xFF0A0020, 0xFF4A0758, Shader.TileMode.CLAMP);
+                          float sr = h * (compact ? 0.24f : 0.22f);
+                          float scy = h * 0.6f - sr * 0.35f;
+                          sunShader = new LinearGradient(0, scy - sr, 0, scy + sr, 0xFFFFE36B, 0xFFFF2E8A, Shader.TileMode.CLAMP);
+                          break;
+                      case Prefs.SCENE_HOLO:
+                          bgShader = new RadialGradient(w / 2f, h / 2f, Math.max(w, h) * 0.7f, 0xFF04324A, 0xFF01060E, Shader.TileMode.CLAMP);
+                          break;
+                      case Prefs.SCENE_AURORA:
+                          bgShader = new LinearGradient(0, 0, 0, h, 0xFF02040E, 0xFF0A1A2C, Shader.TileMode.CLAMP);
+                          break;
+                  }
+                  float[] g = globeGeom();
+                  haloShader = new RadialGradient(g[0], g[1], g[2] * 1.28f,
+                          new int[]{0x00000000, 0x00000000, 0x993F8CFF, 0x333F8CFF, 0x00000000},
+                          new float[]{0f, 0.74f, 0.79f, 0.86f, 1f}, Shader.TileMode.CLAMP);
+              }
+
+              private float[] globeGeom() {
+                  if (compact) return new float[]{w / 2f, h * 0.52f, Math.min(w, h) * 0.36f};
+                  return new float[]{w * 0.70f, h * 0.56f, h * 0.40f};
+              }
+
+              @Override protected void onDraw(Canvas c) {
+                  if (w == 0) return;
+                  float t = (SystemClock.uptimeMillis() - start) / 1000f * speed;
+                  switch (scene) {
+                      case Prefs.SCENE_GLOBE: drawGlobe(c, t); break;
+                      case Prefs.SCENE_NEON: drawNeon(c, t); break;
+                      case Prefs.SCENE_HOLO: drawHolo(c, t); break;
+                      case Prefs.SCENE_AURORA: drawAurora(c, t); break;
+                      default: drawStars(c, t); break;
+                  }
+                  postInvalidateDelayed(compact ? 50 : 33);
+              }
+
+              // ================= GLOBE TERRE =================
+              private void drawGlobe(Canvas c, float t) {
+                  fillBg(c);
+                  drawStarField(c, t, 1f);
+                  float[] g = globeGeom();
+                  float cx = g[0], cy = g[1], R = g[2];
+                  // nébuleuse discrète couleur de session
+                  p.setShader(new RadialGradient(w * 0.2f, h * 0.25f, h * 0.7f, (accent & 0x00FFFFFF) | 0x22000000, 0, Shader.TileMode.CLAMP));
+                  c.drawRect(0, 0, w, h, p);
+                  p.setShader(haloShader);
+                  c.drawCircle(cx, cy, R * 1.28f, p);
+                  p.setShader(null);
+                  if (EarthRenderer.isReady()) {
+                      if (earth == null) earth = new EarthRenderer(compact ? 180 : 440);
+                      float rot = t * EarthRenderer.TW * 0.011f;
+                      Bitmap b = earth.render(rot, rot * 1.35f + 40f);
+                      dst.set((int) (cx - R), (int) (cy - R), (int) (cx + R), (int) (cy + R));
+                      if (b != null) c.drawBitmap(b, null, dst, bmpPaint);
+                  } else {
+                      p.setColor(0xFF0A1C3A);
+                      c.drawCircle(cx, cy, R, p);
+                  }
+              }
+
+              // ================= NÉON =================
+              private void drawNeon(Canvas c, float t) {
+                  fillBg(c);
+                  float hz = h * 0.6f;
+                  drawStarField(c, t, 0.5f, hz);
+                  float sr = h * (compact ? 0.24f : 0.22f);
+                  float scx = w / 2f, scy = hz - sr * 0.35f;
+                  c.save();
+                  path.reset();
+                  path.addCircle(scx, scy, sr, Path.Direction.CW);
+                  c.clipPath(path);
+                  p.setShader(sunShader);
+                  c.drawRect(scx - sr, scy - sr, scx + sr, scy + sr, p);
+                  p.setShader(null);
+                  p.setColor(0xFF2A0440);
+                  for (int i = 0; i < 7; i++) {
+                      float y = scy + sr * (0.05f + i * 0.14f) + ((t * 8f) % (sr * 0.14f));
+                      c.drawRect(scx - sr, y, scx + sr, y + sr * (0.015f + i * 0.012f), p);
+                  }
+                  c.restore();
+                  // halo du soleil
+                  p.setShader(new RadialGradient(scx, scy, sr * 1.8f, 0x55FF3E9E, 0x00FF3E9E, Shader.TileMode.CLAMP));
+                  c.drawCircle(scx, scy, sr * 1.8f, p);
+                  p.setShader(null);
+                  // montagnes
+                  path.reset();
+                  path.moveTo(0, hz);
+                  int n = ridge.length;
+                  for (int i = 0; i < n; i++) {
+                      float x = w * i / (float) (n - 1);
+                      float centre = Math.abs(x - w / 2f) / (w / 2f);
+                      float hh = ridge[i] * h * 0.16f * (0.25f + centre);
+                      path.lineTo(x, hz - hh);
+                  }
+                  path.lineTo(w, hz);
+                  path.close();
+                  p.setStyle(Paint.Style.FILL);
+                  p.setColor(0xFF160226);
+                  c.drawPath(path, p);
+                  glowPath(c, path, accent, compact ? 1.5f : 2.5f);
+                  // sol
+                  p.setColor(0xFF07000F);
+                  c.drawRect(0, hz, w, h, p);
+                  float lw = compact ? 1.2f : 2f;
+                  for (int i = -14; i <= 14; i++) {
+                      float xt = w / 2f + i * w * 0.018f, xb = w / 2f + i * w * 0.14f;
+                      glowLine(c, xt, hz, xb, h, accent, lw);
+                  }
+                  int K = 14;
+                  float phase = (t * 0.6f) % 1f;
+                  for (int k = 0; k < K; k++) {
+                      float q = (k + phase) / K;
+                      float y = hz + (h - hz) * q * q;
+                      glowLine(c, 0, y, w, y, accent, lw * (0.4f + q));
+                  }
+                  glowLine(c, 0, hz, w, hz, 0xFFFF7AD9, lw * 1.4f);
+                  drawParticles(c, t, accent, hz);
+              }
+
+              // ================= HOLOGRAPHIQUE =================
+              private void drawHolo(Canvas c, float t) {
+                  fillBg(c);
+                  if (hexPath == null) hexPath = buildHex();
+                  p.setStyle(Paint.Style.STROKE);
+                  p.setStrokeWidth(1f);
+                  p.setColor((accent & 0x00FFFFFF) | 0x16000000);
+                  c.drawPath(hexPath, p);
+                  float cx = compact ? w / 2f : w * 0.68f, cy = h * 0.52f;
+                  float R = Math.min(w, h) * (compact ? 0.27f : 0.28f);
+                  float rot = t * 0.35f;
+                  double tilt = Math.toRadians(20);
+                  float ct = (float) Math.cos(tilt), st = (float) Math.sin(tilt);
+                  p.setStrokeWidth(compact ? 1f : 1.6f);
+                  // méridiens
+                  for (int m = 0; m < 12; m++) {
+                      double lon = m * Math.PI / 12 + rot;
+                      float px0 = 0, py0 = 0, pz0 = 0; boolean first = true;
+                      for (int s = 0; s <= 18; s++) {
+                          double lat = -Math.PI / 2 + s * Math.PI / 18;
+                          float x = (float) (Math.cos(lat) * Math.sin(lon)), y = (float) Math.sin(lat), z = (float) (Math.cos(lat) * Math.cos(lon));
+                          float y2 = y * ct - z * st, z2 = y * st + z * ct;
+                          if (!first) holoSeg(c, cx + px0 * R, cy - py0 * R, cx + x * R, cy - y2 * R, (pz0 + z2) / 2f);
+                          px0 = x; py0 = y2; pz0 = z2; first = false;
+                      }
+                  }
+                  // parallèles
+                  for (int l = -2; l <= 2; l++) {
+                      double lat = l * Math.PI / 6;
+                      float px0 = 0, py0 = 0, pz0 = 0; boolean first = true;
+                      for (int s = 0; s <= 36; s++) {
+                          double lon = s * Math.PI / 18;
+                          float x = (float) (Math.cos(lat) * Math.sin(lon)), y = (float) Math.sin(lat), z = (float) (Math.cos(lat) * Math.cos(lon));
+                          float y2 = y * ct - z * st, z2 = y * st + z * ct;
+                          if (!first) holoSeg(c, cx + px0 * R, cy - py0 * R, cx + x * R, cy - y2 * R, (pz0 + z2) / 2f);
+                          px0 = x; py0 = y2; pz0 = z2; first = false;
+                      }
+                  }
+                  // cœur lumineux
+                  p.setStyle(Paint.Style.FILL);
+                  p.setShader(new RadialGradient(cx, cy, R * 1.1f, (accent & 0x00FFFFFF) | 0x40000000, accent & 0x00FFFFFF, Shader.TileMode.CLAMP));
+                  c.drawCircle(cx, cy, R * 1.1f, p);
+                  p.setShader(null);
+                  // anneaux tournants
+                  p.setStyle(Paint.Style.STROKE);
+                  float[] radii = {1.22f, 1.38f, 1.56f};
+                  for (int i = 0; i < radii.length; i++) {
+                      float rr = R * radii[i];
+                      rf.set(cx - rr, cy - rr, cx + rr, cy + rr);
+                      float dir = (i % 2 == 0 ? 1 : -1) * (40 + i * 25);
+                      float base = t * dir;
+                      p.setStrokeWidth((compact ? 1.5f : 3f) - i * 0.5f);
+                      p.setColor((accent & 0x00FFFFFF) | ((200 - i * 50) << 24));
+                      int segs = 3 + i * 2;
+                      for (int sgi = 0; sgi < segs; sgi++)
+                          c.drawArc(rf, base + sgi * 360f / segs, 360f / segs * 0.55f, false, p);
+                  }
+                  // ligne de balayage
+                  float scanY = (t * 0.18f % 1f) * h;
+                  p.setStyle(Paint.Style.FILL);
+                  p.setShader(new LinearGradient(0, scanY - h * 0.08f, 0, scanY, accent & 0x00FFFFFF, (accent & 0x00FFFFFF) | 0x30000000, Shader.TileMode.CLAMP));
+                  c.drawRect(0, scanY - h * 0.08f, w, scanY, p);
+                  p.setShader(null);
+                  // lignes de trame
+                  p.setColor(0x10000000);
+                  for (int y = 0; y < h; y += 4) c.drawRect(0, y, w, y + 1, p);
+                  drawParticles(c, t, accent, h);
+              }
+
+              private void holoSeg(Canvas c, float x1, float y1, float x2, float y2, float z) {
+                  int a = (int) (40 + 190 * Math.max(0f, (z + 1f) / 2f));
+                  p.setColor((accent & 0x00FFFFFF) | (a << 24));
+                  c.drawLine(x1, y1, x2, y2, p);
+              }
+
+              private Path buildHex() {
+                  Path hp = new Path();
+                  float s = compact ? 18 : 34;
+                  float hh = (float) (Math.sqrt(3) * s);
+                  for (float y = -hh; y < h + hh; y += hh) {
+                      int row = (int) (y / hh);
+                      for (float x = -s * 3; x < w + s * 3; x += s * 3) {
+                          float ox = x + ((row & 1) == 0 ? 0 : s * 1.5f);
+                          for (int i = 0; i < 6; i++) {
+                              double a = Math.PI / 3 * i;
+                              float px = ox + (float) (s * Math.cos(a)), py = y + (float) (s * Math.sin(a));
+                              if (i == 0) hp.moveTo(px, py); else hp.lineTo(px, py);
+                          }
+                          hp.close();
+                      }
+                  }
+                  return hp;
+              }
+
+              // ================= AURORE BORÉALE =================
+              private void drawAurora(Canvas c, float t) {
+                  fillBg(c);
+                  drawStarField(c, t, 0.8f);
+                  int[] cols = {0xFF2BFF9C, 0xFF19D3FF, accent};
+                  for (int r = 0; r < 3; r++) {
+                      float base = h * (0.32f + r * 0.08f);
+                      float amp = h * 0.06f;
+                      float height = h * (0.22f - r * 0.04f);
+                      path.reset();
+                      int steps = 48;
+                      for (int i = 0; i <= steps; i++) {
+                          float x = w * i / (float) steps;
+                          float y = base + (float) (Math.sin(x / w * 6.0 + t * (0.4 + r * 0.15) + r) * amp
+                                  + Math.sin(x / w * 13.0 - t * 0.7) * amp * 0.35);
+                          if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
+                      }
+                      for (int i = steps; i >= 0; i--) {
+                          float x = w * i / (float) steps;
+                          float y = base - height + (float) (Math.sin(x / w * 6.0 + t * (0.4 + r * 0.15) + r) * amp * 1.4);
+                          path.lineTo(x, y);
+                      }
+                      path.close();
+                      int col = cols[r] & 0x00FFFFFF;
+                      p.setStyle(Paint.Style.FILL);
+                      p.setShader(new LinearGradient(0, base - height, 0, base + amp, col, col | 0x88000000, Shader.TileMode.CLAMP));
+                      c.drawPath(path, p);
+                      p.setShader(null);
+                  }
+                  // montagnes et lac
+                  path.reset();
+                  float hz = h * 0.78f;
+                  path.moveTo(0, hz);
+                  for (int i = 0; i < ridge.length; i++) path.lineTo(w * i / (float) (ridge.length - 1), hz - ridge[i] * h * 0.12f);
+                  path.lineTo(w, h); path.lineTo(0, h); path.close();
+                  p.setColor(0xFF02050A);
+                  c.drawPath(path, p);
+                  p.setColor(0xFF050C16);
+                  c.drawRect(0, h * 0.86f, w, h, p);
+              }
+
+              // ================= ÉTOILES =================
+              private void drawStars(Canvas c, float t) {
+                  fillBg(c);
+                  float nx = w * (0.5f + 0.2f * (float) Math.sin(t * 0.05)), ny = h * (0.4f + 0.1f * (float) Math.cos(t * 0.04));
+                  p.setShader(new RadialGradient(nx, ny, h * 0.8f, (accent & 0x00FFFFFF) | 0x33000000, 0, Shader.TileMode.CLAMP));
+                  c.drawRect(0, 0, w, h, p);
+                  p.setShader(new RadialGradient(w - nx, h - ny, h * 0.6f, 0x225A3CFF, 0, Shader.TileMode.CLAMP));
+                  c.drawRect(0, 0, w, h, p);
+                  p.setShader(null);
+                  drawStarField(c, t, 1.4f);
+                  // étoile filante
+                  float cyc = t % 9f;
+                  if (cyc < 1.2f) {
+                      float k = cyc / 1.2f;
+                      float x = w * (0.15f + 0.6f * k), y = h * (0.12f + 0.25f * k);
+                      p.setStrokeWidth(compact ? 1.5f : 2.5f);
+                      p.setShader(new LinearGradient(x - w * 0.12f, y - h * 0.05f, x, y, 0x00FFFFFF, 0xFFFFFFFF, Shader.TileMode.CLAMP));
+                      c.drawLine(x - w * 0.12f, y - h * 0.05f, x, y, p);
+                      p.setShader(null);
+                  }
+              }
+
+              // ================= outils =================
+              private void fillBg(Canvas c) {
+                  p.setStyle(Paint.Style.FILL);
+                  if (bgShader == null) buildShaders();
+                  p.setShader(bgShader);
+                  c.drawRect(0, 0, w, h, p);
+                  p.setShader(null);
+              }
+
+              private void drawStarField(Canvas c, float t, float drift) { drawStarField(c, t, drift, h); }
+
+              private void drawStarField(Canvas c, float t, float drift, float maxY) {
+                  p.setStyle(Paint.Style.FILL);
+                  for (int i = 0; i < sx.length; i++) {
+                      float x = ((sx[i] - t * 0.004f * drift * ss[i]) % 1f + 1f) % 1f * w;
+                      float y = sy[i] * maxY;
+                      float a = 0.45f + 0.55f * (float) Math.sin(t * (1.2f + ss[i]) + sph[i]);
+                      p.setColor(Color.argb((int) (255 * Math.max(0.1f, a)), 255, 255, 255));
+                      c.drawCircle(x, y, ss[i] * (compact ? 0.7f : 1.1f), p);
+                  }
+              }
+
+              private void drawParticles(Canvas c, float t, int col, float maxY) {
+                  p.setStyle(Paint.Style.FILL);
+                  for (int i = 0; i < qx.length; i++) {
+                      float k = (t * qs[i] + qo[i]) % 1f;
+                      float y = maxY * (1f - k);
+                      float a = (float) Math.sin(k * Math.PI);
+                      p.setColor((col & 0x00FFFFFF) | ((int) (200 * a) << 24));
+                      c.drawCircle(qx[i] * w + (float) Math.sin(t + i) * 8f, y, compact ? 1.5f : 2.5f, p);
+                  }
+              }
+
+              private void glowLine(Canvas c, float x1, float y1, float x2, float y2, int col, float width) {
+                  int rgb = col & 0x00FFFFFF;
+                  p.setShader(null);
+                  p.setStyle(Paint.Style.STROKE);
+                  p.setStrokeCap(Paint.Cap.ROUND);
+                  p.setStrokeWidth(width * 6); p.setColor(rgb | 0x22000000); c.drawLine(x1, y1, x2, y2, p);
+                  p.setStrokeWidth(width * 2.6f); p.setColor(rgb | 0x66000000); c.drawLine(x1, y1, x2, y2, p);
+                  p.setStrokeWidth(width); p.setColor(rgb | 0xFF000000); c.drawLine(x1, y1, x2, y2, p);
+                  p.setStyle(Paint.Style.FILL);
+              }
+
+              private void glowPath(Canvas c, Path pa, int col, float width) {
+                  int rgb = col & 0x00FFFFFF;
+                  p.setStyle(Paint.Style.STROKE);
+                  p.setStrokeJoin(Paint.Join.ROUND);
+                  p.setStrokeWidth(width * 6); p.setColor(rgb | 0x22000000); c.drawPath(pa, p);
+                  p.setStrokeWidth(width * 2.6f); p.setColor(rgb | 0x66000000); c.drawPath(pa, p);
+                  p.setStrokeWidth(width); p.setColor(rgb | 0xFF000000); c.drawPath(pa, p);
+                  p.setStyle(Paint.Style.FILL);
+              }
+          }
+          IMADA_EOF
+          cat > app/src/main/java/tv/imada/app/SessionActivity.java <<'IMADA_EOF'
+          package tv.imada.app;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.graphics.Color;
+          import android.graphics.drawable.GradientDrawable;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.text.TextUtils;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+          import android.widget.HorizontalScrollView;
+          import android.widget.ImageView;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          import java.util.List;
+
+          /** Une session : fond animé, horloge, favoris, toutes les applis, fenêtre Actualités. */
+          public class SessionActivity extends Activity {
+
+              static final String MOBILE_UA = "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 "
+                      + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+
+              private Prefs pr;
+              private FrameLayout root;
+              private LinearLayout favRow, grid;
+              private TextView clock, date;
+              private WebView news;
+              private String signature = "";
+              private int accent;
+              private final Handler handler = new Handler(Looper.getMainLooper());
+
+              private final Runnable tick = new Runnable() {
+                  @Override public void run() {
+                      if (clock != null) { clock.setText(Ui.clock()); date.setText(Ui.date()); }
+                      if (news != null) {
+                          // la petite fenêtre reste muette ; le son est actif en plein écran
+                          news.evaluateJavascript("document.querySelectorAll('video').forEach(function(v){v.muted=true;});", null);
+                      }
+                      handler.postDelayed(this, 2000);
+                  }
+              };
+
+              @Override protected void onCreate(Bundle state) {
+                  super.onCreate(state);
+                  pr = new Prefs(this, getIntent().getIntExtra("id", 0));
+                  root = new FrameLayout(this);
+                  setContentView(root);
+              }
+
+              @Override protected void onResume() {
+                  super.onResume();
+                  String sig = pr.name() + pr.scene() + pr.accentIndex() + pr.speedIndex() + pr.shape() + pr.newsOn() + pr.newsUrl();
+                  if (!sig.equals(signature)) { signature = sig; buildAll(); }
+                  else refreshApps(false);
+                  if (news != null) news.onResume();
+                  handler.post(tick);
+              }
+
+              @Override protected void onPause() {
+                  super.onPause();
+                  handler.removeCallbacks(tick);
+                  if (news != null) news.onPause();
+              }
+
+              @Override protected void onDestroy() {
+                  if (news != null) { news.destroy(); news = null; }
+                  super.onDestroy();
+              }
+
+              private void buildAll() {
+                  if (news != null) { news.destroy(); news = null; }
+                  root.removeAllViews();
+                  accent = pr.accent();
+                  root.addView(new SceneView(this, pr.scene(), accent, pr.speed(), false), new FrameLayout.LayoutParams(-1, -1));
+
+                  View shade = new View(this);
+                  shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                          new int[]{0xE6000000, 0x8C000000, 0x14000000}));
+                  root.addView(shade, new FrameLayout.LayoutParams(-1, -1));
+
+                  LinearLayout col = new LinearLayout(this);
+                  col.setOrientation(LinearLayout.VERTICAL);
+                  col.setPadding(Ui.dp(this, 48), Ui.dp(this, 28), Ui.dp(this, 40), Ui.dp(this, 22));
+                  root.addView(col, new FrameLayout.LayoutParams(-1, -1));
+
+                  // ---- barre du haut
+                  LinearLayout top = new LinearLayout(this);
+                  top.setGravity(Gravity.CENTER_VERTICAL);
+                  LinearLayout who = new LinearLayout(this);
+                  who.setOrientation(LinearLayout.VERTICAL);
+                  who.addView(Ui.text(this, pr.name(), 34, accent, true));
+                  who.addView(Ui.text(this, "Session " + Prefs.SCENES[pr.scene()], 14, 0xCCFFFFFF, false));
+                  top.addView(who, new LinearLayout.LayoutParams(0, -2, 1f));
+                  top.addView(pill("⌂  Accueil IMADA", v -> finish()));
+                  top.addView(pill("⚙  Paramètres", v ->
+                          startActivity(new Intent(this, SettingsActivity.class).putExtra("id", pr.id))));
+                  LinearLayout time = new LinearLayout(this);
+                  time.setOrientation(LinearLayout.VERTICAL);
+                  time.setGravity(Gravity.END);
+                  time.setPadding(Ui.dp(this, 26), 0, 0, 0);
+                  clock = Ui.text(this, Ui.clock(), 40, 0xFFFFFFFF, false);
+                  date = Ui.text(this, Ui.date(), 14, 0xCCFFFFFF, false);
+                  time.addView(clock);
+                  time.addView(date);
+                  top.addView(time);
+                  col.addView(top);
+
+                  // ---- corps
+                  LinearLayout body = new LinearLayout(this);
+                  body.setPadding(0, Ui.dp(this, 18), 0, 0);
+                  col.addView(body, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+                  ScrollView scroll = new ScrollView(this);
+                  scroll.setVerticalScrollBarEnabled(false);
+                  scroll.setClipToPadding(false);
+                  LinearLayout list = new LinearLayout(this);
+                  list.setOrientation(LinearLayout.VERTICAL);
+                  list.setPadding(Ui.dp(this, 6), Ui.dp(this, 6), Ui.dp(this, 6), Ui.dp(this, 30));
+                  scroll.addView(list);
+                  body.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1f));
+
+                  list.addView(section("Favoris"));
+                  HorizontalScrollView hs = new HorizontalScrollView(this);
+                  hs.setHorizontalScrollBarEnabled(false);
+                  hs.setClipToPadding(false);
+                  favRow = new LinearLayout(this);
+                  favRow.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+                  hs.addView(favRow);
+                  list.addView(hs);
+                  list.addView(section("Toutes les applications"));
+                  grid = new LinearLayout(this);
+                  grid.setOrientation(LinearLayout.VERTICAL);
+                  list.addView(grid);
+
+                  if (pr.newsOn()) body.addView(buildNews(), new LinearLayout.LayoutParams(Ui.dp(this, 250), -1));
+
+                  refreshApps(true);
+              }
+
+              private TextView section(String s) {
+                  TextView t = Ui.text(this, s.toUpperCase(), 13, accent, true);
+                  t.setLetterSpacing(0.2f);
+                  t.setPadding(0, Ui.dp(this, 12), 0, Ui.dp(this, 4));
+                  return t;
+              }
+
+              private TextView pill(String label, View.OnClickListener l) {
+                  TextView b = Ui.text(this, label, 16, 0xFFFFFFFF, true);
+                  b.setPadding(Ui.dp(this, 20), Ui.dp(this, 10), Ui.dp(this, 20), Ui.dp(this, 10));
+                  float r = Ui.dp(this, 30);
+                  Ui.focusFx(b, b, Ui.box(0x4D000000, r, 0x55FFFFFF, Ui.dp(this, 1)), Ui.box(accent, r, 0, 0), 1.08f);
+                  b.setOnFocusChangeListener(chain(b.getOnFocusChangeListener(), (v, has) -> b.setTextColor(has ? 0xFF0A0A0A : 0xFFFFFFFF)));
+                  b.setOnClickListener(l);
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+                  lp.setMargins(Ui.dp(this, 10), 0, 0, 0);
+                  b.setLayoutParams(lp);
+                  return b;
+              }
+
+              private static View.OnFocusChangeListener chain(View.OnFocusChangeListener a, View.OnFocusChangeListener b) {
+                  return (v, has) -> { if (a != null) a.onFocusChange(v, has); b.onFocusChange(v, has); };
+              }
+
+              // ---------------- applications ----------------
+
+              private void refreshApps(boolean takeFocus) {
+                  List<AppsRepo.App> apps = AppsRepo.load(this);
+                  List<String> favs = pr.favorites();
+                  View focusedView = getCurrentFocus();
+                  boolean hadFocusInApps = focusedView != null && focusedView.getTag() instanceof String;
+                  String focusedPkg = hadFocusInApps ? (String) focusedView.getTag() : null;
+                  boolean inFav = hadFocusInApps && focusedView.getParent() == favRow;
+
+                  favRow.removeAllViews();
+                  View first = null, restore = null;
+                  for (String pkg : favs) {
+                      for (AppsRepo.App a : apps) if (a.pkg.equals(pkg)) {
+                          View t = tile(a, true);
+                          favRow.addView(t);
+                          if (first == null) first = t;
+                          if (inFav && pkg.equals(focusedPkg) && restore == null) restore = t;
+                      }
+                  }
+                  if (favRow.getChildCount() == 0) {
+                      TextView empty = Ui.text(this, "Aucun favori pour l'instant — maintiens OK sur une appli ci-dessous pour l'ajouter ici.",
+                              15, 0xB3FFFFFF, false);
+                      empty.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 10));
+                      favRow.addView(empty);
+                  }
+
+                  grid.removeAllViews();
+                  int sw = getResources().getConfiguration().screenWidthDp;
+                  int avail = sw - 88 - (pr.newsOn() ? 260 : 0) - 12;
+                  int cols = Math.max(3, avail / 104);
+                  LinearLayout row = null;
+                  for (int i = 0; i < apps.size(); i++) {
+                      if (i % cols == 0) {
+                          row = new LinearLayout(this);
+                          row.setPadding(0, Ui.dp(this, 4), 0, Ui.dp(this, 4));
+                          grid.addView(row);
+                      }
+                      View t = tile(apps.get(i), false);
+                      row.addView(t);
+                      if (first == null) first = t;
+                      if (!inFav && restore == null && apps.get(i).pkg.equals(focusedPkg)) restore = t;
+                  }
+                  if (restore != null) restore.requestFocus();
+                  else if ((takeFocus || hadFocusInApps) && first != null) first.requestFocus();
+              }
+
+              private View tile(AppsRepo.App a, boolean isFav) {
+                  LinearLayout t = new LinearLayout(this);
+                  t.setOrientation(LinearLayout.VERTICAL);
+                  t.setGravity(Gravity.CENTER_HORIZONTAL);
+                  t.setTag(a.pkg);
+                  t.setPadding(Ui.dp(this, 6), Ui.dp(this, 6), Ui.dp(this, 6), Ui.dp(this, 2));
+
+                  int size = Ui.dp(this, 70);
+                  FrameLayout wrap = new FrameLayout(this);
+                  boolean round = pr.shape() == 0;
+                  float rad = Ui.dp(this, 18);
+                  android.graphics.drawable.Drawable normal = round ? Ui.oval(0xF5F7F9FC, 0, 0) : Ui.box(0xF5F7F9FC, rad, 0, 0);
+                  android.graphics.drawable.Drawable focus = round ? Ui.oval(0xFFFFFFFF, accent, Ui.dp(this, 4))
+                          : Ui.box(0xFFFFFFFF, rad, accent, Ui.dp(this, 4));
+                  wrap.setClipToOutline(true);
+                  ImageView iv = new ImageView(this);
+                  iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                  int pad = Ui.dp(this, round ? 13 : 10);
+                  iv.setPadding(pad, pad, pad, pad);
+                  if (a.icon != null) iv.setImageDrawable(a.icon);
+                  wrap.addView(iv, new FrameLayout.LayoutParams(-1, -1));
+                  t.addView(wrap, new LinearLayout.LayoutParams(size, size));
+
+                  TextView label = Ui.text(this, a.label, 13, 0xFFFFFFFF, false);
+                  label.setSingleLine(true);
+                  label.setEllipsize(TextUtils.TruncateAt.END);
+                  label.setGravity(Gravity.CENTER);
+                  label.setPadding(0, Ui.dp(this, 6), 0, 0);
+                  t.addView(label, new LinearLayout.LayoutParams(Ui.dp(this, 92), -2));
+
+                  Ui.focusFx(t, wrap, normal, focus, 1.12f);
+                  t.setOnClickListener(v -> {
+                      if (!AppsRepo.launch(this, a.pkg)) Toast.makeText(this, "Impossible d'ouvrir " + a.label, Toast.LENGTH_SHORT).show();
+                  });
+                  t.setOnLongClickListener(v -> {
+                      boolean added = pr.toggleFavorite(a.pkg);
+                      Toast.makeText(this, a.label + (added ? " ajouté aux favoris" : " retiré des favoris"), Toast.LENGTH_SHORT).show();
+                      refreshApps(false);
+                      return true;
+                  });
+                  t.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 104), -2));
+                  return t;
+              }
+
+              // ---------------- fenêtre Actualités ----------------
+
+              private View buildNews() {
+                  LinearLayout panel = new LinearLayout(this);
+                  panel.setOrientation(LinearLayout.VERTICAL);
+                  panel.setPadding(Ui.dp(this, 18), Ui.dp(this, 6), 0, 0);
+
+                  TextView head = Ui.text(this, "●  ACTUALITÉS", 13, 0xFFFF4D5E, true);
+                  head.setLetterSpacing(0.2f);
+                  head.setPadding(Ui.dp(this, 4), 0, 0, Ui.dp(this, 8));
+                  panel.addView(head);
+
+                  FrameLayout phone = new FrameLayout(this);
+                  int pad = Ui.dp(this, 7);
+                  phone.setPadding(pad, pad, pad, pad);
+                  float r = Ui.dp(this, 28);
+                  Ui.focusFx(phone, phone, Ui.box(0xFF000000, r, 0x66FFFFFF, Ui.dp(this, 2)),
+                          Ui.box(0xFF000000, r, accent, Ui.dp(this, 4)), 1.04f);
+                  phone.setOnClickListener(v -> startActivity(new Intent(this, NewsActivity.class).putExtra("url", pr.newsUrl())));
+
+                  FrameLayout screen = new FrameLayout(this);
+                  screen.setBackground(Ui.box(0xFF111111, Ui.dp(this, 22), 0, 0));
+                  screen.setClipToOutline(true);
+                  try {
+                      news = new WebView(this);
+                      setupWeb(news);
+                      news.setFocusable(false);
+                      news.setFocusableInTouchMode(false);
+                      screen.addView(news, new FrameLayout.LayoutParams(-1, -1));
+                      news.loadUrl(pr.newsUrl());
+                  } catch (Throwable e) {
+                      news = null;
+                      TextView no = Ui.text(this, "Fenêtre indisponible sur cette télé", 13, 0xB3FFFFFF, false);
+                      no.setGravity(Gravity.CENTER);
+                      screen.addView(no, new FrameLayout.LayoutParams(-1, -1));
+                  }
+                  phone.addView(screen, new FrameLayout.LayoutParams(-1, -1));
+                  panel.addView(phone, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+                  TextView foot = Ui.text(this, "OK : plein écran", 12, 0x99FFFFFF, false);
+                  foot.setGravity(Gravity.CENTER);
+                  foot.setPadding(0, Ui.dp(this, 6), 0, 0);
+                  panel.addView(foot);
+                  return panel;
+              }
+
+              static void setupWeb(WebView w) {
+                  WebSettings s = w.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setUserAgentString(MOBILE_UA);
+                  s.setLoadWithOverviewMode(true);
+                  s.setUseWideViewPort(true);
+                  w.setBackgroundColor(Color.BLACK);
+                  w.setWebViewClient(new WebViewClient() {
+                      @SuppressWarnings("deprecation")
+                      @Override public boolean shouldOverrideUrlLoading(WebView v, String url) {
+                          // reste dans la fenêtre ; bloque les redirections vers l'appli TikTok
+                          return !(url.startsWith("http://") || url.startsWith("https://"));
+                      }
+                  });
+              }
+          }
+          IMADA_EOF
+          cat > app/src/main/java/tv/imada/app/SettingsActivity.java <<'IMADA_EOF'
+          package tv.imada.app;
+
+          import android.app.Activity;
+          import android.graphics.drawable.GradientDrawable;
+          import android.os.Bundle;
+          import android.text.InputType;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.widget.FrameLayout;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          /** Paramètres privés d'une session, protégés par son code PIN. Aperçu du fond en direct. */
+          public class SettingsActivity extends Activity {
+
+              private interface Val { String get(); }
+
+              private Prefs pr;
+              private SceneView preview;
+              private LinearLayout list;
+              private TextView title;
+              private int focusIndex = 0;
+
+              @Override protected void onCreate(Bundle state) {
+                  super.onCreate(state);
+                  pr = new Prefs(this, getIntent().getIntExtra("id", 0));
+                  FrameLayout root = new FrameLayout(this);
+                  preview = new SceneView(this, pr.scene(), pr.accent(), pr.speed(), false);
+                  root.addView(preview, new FrameLayout.LayoutParams(-1, -1));
+                  View shade = new View(this);
+                  shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                          new int[]{0xF2000000, 0xB3000000, 0x00000000}));
+                  root.addView(shade, new FrameLayout.LayoutParams(-1, -1));
+
+                  LinearLayout panel = new LinearLayout(this);
+                  panel.setOrientation(LinearLayout.VERTICAL);
+                  panel.setPadding(Ui.dp(this, 48), Ui.dp(this, 30), Ui.dp(this, 20), Ui.dp(this, 20));
+                  title = Ui.text(this, "", 30, pr.accent(), true);
+                  panel.addView(title);
+                  TextView sub = Ui.text(this, "Ces réglages ne concernent que cette session.", 14, 0xB3FFFFFF, false);
+                  sub.setPadding(0, Ui.dp(this, 2), 0, Ui.dp(this, 14));
+                  panel.addView(sub);
+                  ScrollView sv = new ScrollView(this);
+                  sv.setVerticalScrollBarEnabled(false);
+                  sv.setClipToPadding(false);
+                  list = new LinearLayout(this);
+                  list.setOrientation(LinearLayout.VERTICAL);
+                  list.setPadding(Ui.dp(this, 6), Ui.dp(this, 4), Ui.dp(this, 6), Ui.dp(this, 20));
+                  sv.addView(list);
+                  panel.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
+                  root.addView(panel, new FrameLayout.LayoutParams(Ui.dp(this, 540), -1));
+                  setContentView(root);
+
+                  Ui.askPin(this, pr.pin(), "Paramètres de " + pr.name(), this::build, this::finish);
+              }
+
+              private void build() {
+                  int accent = pr.accent();
+                  title.setText("Paramètres — " + pr.name());
+                  title.setTextColor(accent);
+                  preview.configure(pr.scene(), accent, pr.speed());
+                  list.removeAllViews();
+
+                  row("Nom de la session", pr::name, () ->
+                          Ui.askText(this, "Nom de la session", pr.name(), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, s -> {
+                              if (!s.isEmpty()) { pr.setName(s); build(); }
+                          }));
+                  row("Fond animé", () -> Prefs.SCENES[pr.scene()], () -> {
+                      pr.setScene((pr.scene() + 1) % Prefs.SCENES.length); build();
+                  });
+                  row("Couleur de la session", () -> Prefs.ACCENT_NAMES[pr.accentIndex()], () -> {
+                      pr.setAccent((pr.accentIndex() + 1) % Prefs.ACCENTS.length); build();
+                  });
+                  row("Vitesse de l'animation", () -> Prefs.SPEEDS[pr.speedIndex()], () -> {
+                      pr.setSpeed((pr.speedIndex() + 1) % Prefs.SPEEDS.length); build();
+                  });
+                  row("Forme des icônes", () -> Prefs.SHAPES[pr.shape()], () -> {
+                      pr.setShape((pr.shape() + 1) % Prefs.SHAPES.length); build();
+                  });
+                  row("Fenêtre Actualités", () -> pr.newsOn() ? "Activée" : "Désactivée", () -> {
+                      pr.setNewsOn(!pr.newsOn()); build();
+                  });
+                  row("Adresse des actualités", () -> shortUrl(pr.newsUrl()), () ->
+                          Ui.askText(this, "Adresse de la fenêtre Actualités", pr.newsUrl(), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, s -> {
+                              if (s.isEmpty()) s = Prefs.DEFAULT_NEWS;
+                              if (!s.startsWith("http")) s = "https://" + s;
+                              pr.setNewsUrl(s); build();
+                          }));
+                  row("Code PIN des paramètres", () -> pr.pin().isEmpty() ? "Aucun" : "••••", this::editPin);
+                  row("Code demandé pour entrer", () -> pr.lockEntry() ? "Oui" : "Non", () -> {
+                      if (pr.pin().isEmpty()) { Toast.makeText(this, "Définis d'abord un code PIN", Toast.LENGTH_SHORT).show(); return; }
+                      pr.setLockEntry(!pr.lockEntry()); build();
+                  });
+                  row("Favoris", () -> pr.favorites().size() + " appli(s) — réinitialiser", () ->
+                          Ui.dialog(this).setTitle("Vider les favoris de " + pr.name() + " ?")
+                                  .setPositiveButton("Vider", (d, w) -> { pr.clearFavorites(); build(); })
+                                  .setNegativeButton("Annuler", null).show());
+                  row("Retour", () -> "", this::finish);
+
+                  int i = Math.min(focusIndex, list.getChildCount() - 1);
+                  list.getChildAt(i).requestFocus();
+              }
+
+              private void editPin() {
+                  if (pr.pin().isEmpty()) {
+                      askNewPin();
+                  } else {
+                      Ui.dialog(this).setTitle("Code PIN")
+                              .setItems(new String[]{"Changer le code", "Supprimer le code"}, (d, which) -> {
+                                  if (which == 0) askNewPin();
+                                  else { pr.setPin(""); pr.setLockEntry(false); build(); }
+                              }).show();
+                  }
+              }
+
+              private void askNewPin() {
+                  Ui.askText(this, "Nouveau code (4 chiffres ou plus)", "",
+                          InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD, s -> {
+                              if (s.length() < 4) { Toast.makeText(this, "4 chiffres minimum", Toast.LENGTH_SHORT).show(); return; }
+                              pr.setPin(s);
+                              Toast.makeText(this, "Code enregistré", Toast.LENGTH_SHORT).show();
+                              build();
+                          });
+              }
+
+              private void row(String label, Val value, Runnable action) {
+                  final int index = list.getChildCount();
+                  int accent = pr.accent();
+                  LinearLayout r = new LinearLayout(this);
+                  r.setGravity(Gravity.CENTER_VERTICAL);
+                  r.setPadding(Ui.dp(this, 20), Ui.dp(this, 14), Ui.dp(this, 20), Ui.dp(this, 14));
+                  float rad = Ui.dp(this, 14);
+                  Ui.focusFx(r, r, Ui.box(0x26FFFFFF, rad, 0, 0), Ui.box(0x40FFFFFF, rad, accent, Ui.dp(this, 3)), 1.03f);
+                  TextView l = Ui.text(this, label, 18, 0xFFFFFFFF, false);
+                  r.addView(l, new LinearLayout.LayoutParams(0, -2, 1f));
+                  String v = value.get();
+                  if (!v.isEmpty()) r.addView(Ui.text(this, v + "  ›", 17, accent, true));
+                  r.setOnClickListener(x -> { focusIndex = index; action.run(); });
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+                  lp.setMargins(0, Ui.dp(this, 4), 0, Ui.dp(this, 4));
+                  list.addView(r, lp);
+              }
+
+              private static String shortUrl(String u) {
+                  String s = u.replaceFirst("^https?://(www\\.)?", "");
+                  return s.length() > 26 ? s.substring(0, 25) + "…" : s;
+              }
+          }
+          IMADA_EOF
+          cat > app/src/main/java/tv/imada/app/Ui.java <<'IMADA_EOF'
+          package tv.imada.app;
+
+          import android.app.Activity;
+          import android.app.AlertDialog;
+          import android.content.Context;
+          import android.graphics.Typeface;
+          import android.graphics.drawable.Drawable;
+          import android.graphics.drawable.GradientDrawable;
+          import android.text.InputType;
+          import android.util.TypedValue;
+          import android.view.View;
+          import android.widget.EditText;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          import java.text.SimpleDateFormat;
+          import java.util.Date;
+          import java.util.Locale;
+
+          /** Petits outils d'interface partagés. */
+          final class Ui {
+
+              private Ui() {}
+
+              static int dp(Context c, float v) {
+                  return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, c.getResources().getDisplayMetrics());
+              }
+
+              static GradientDrawable box(int fill, float radiusPx, int stroke, int strokePx) {
+                  GradientDrawable g = new GradientDrawable();
+                  g.setColor(fill);
+                  g.setCornerRadius(radiusPx);
+                  if (strokePx > 0) g.setStroke(strokePx, stroke);
+                  return g;
+              }
+
+              static GradientDrawable oval(int fill, int stroke, int strokePx) {
+                  GradientDrawable g = new GradientDrawable();
+                  g.setShape(GradientDrawable.OVAL);
+                  g.setColor(fill);
+                  if (strokePx > 0) g.setStroke(strokePx, stroke);
+                  return g;
+              }
+
+              static TextView text(Context c, String s, float sp, int color, boolean bold) {
+                  TextView t = new TextView(c);
+                  t.setText(s);
+                  t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+                  t.setTextColor(color);
+                  if (bold) t.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+                  else t.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+                  t.setShadowLayer(8f, 0f, 2f, 0xAA000000);
+                  return t;
+              }
+
+              /**
+               * Effet de sélection à la télécommande : agrandissement doux + contour couleur de session.
+               * @param target vue qui change de fond (peut être la vue elle-même)
+               */
+              static void focusFx(View v, View target, Drawable normal, Drawable focused, float scale) {
+                  v.setFocusable(true);
+                  target.setBackground(normal);
+                  v.setOnFocusChangeListener((view, has) -> {
+                      target.setBackground(has ? focused : normal);
+                      view.animate().scaleX(has ? scale : 1f).scaleY(has ? scale : 1f)
+                              .translationZ(has ? 12f : 0f).setDuration(160).start();
+                  });
+              }
+
+              static String clock() { return new SimpleDateFormat("HH:mm", Locale.FRANCE).format(new Date()); }
+
+              static String date() {
+                  String d = new SimpleDateFormat("EEEE d MMMM", Locale.FRANCE).format(new Date());
+                  return d.isEmpty() ? d : Character.toUpperCase(d.charAt(0)) + d.substring(1);
+              }
+
+              static AlertDialog.Builder dialog(Context c) {
+                  return new AlertDialog.Builder(c, android.R.style.Theme_Material_Dialog_Alert);
+              }
+
+              /** Demande le code PIN si la session en a un. */
+              static void askPin(Activity a, String pin, String title, Runnable ok, Runnable cancel) {
+                  if (pin == null || pin.isEmpty()) { ok.run(); return; }
+                  EditText in = new EditText(a);
+                  in.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+                  in.setHint("Code PIN");
+                  dialog(a).setTitle(title).setView(in)
+                          .setPositiveButton("Valider", (d, w) -> {
+                              if (pin.equals(in.getText().toString().trim())) ok.run();
+                              else {
+                                  Toast.makeText(a, "Code incorrect", Toast.LENGTH_SHORT).show();
+                                  if (cancel != null) cancel.run();
+                              }
+                          })
+                          .setNegativeButton("Annuler", (d, w) -> { if (cancel != null) cancel.run(); })
+                          .setOnCancelListener(d -> { if (cancel != null) cancel.run(); })
+                          .show();
+                  in.requestFocus();
+              }
+
+              interface TextResult { void onText(String s); }
+
+              static void askText(Activity a, String title, String current, int inputType, TextResult res) {
+                  EditText in = new EditText(a);
+                  in.setInputType(inputType);
+                  in.setText(current);
+                  in.setSelection(in.getText().length());
+                  dialog(a).setTitle(title).setView(in)
+                          .setPositiveButton("Enregistrer", (d, w) -> res.onText(in.getText().toString().trim()))
+                          .setNegativeButton("Annuler", null)
+                          .show();
+                  in.requestFocus();
+              }
+          }
+          IMADA_EOF
+          echo 'MIIKIgIBAzCCCcwGCSqGSIb3DQEHAaCCCb0Eggm5MIIJtTCCBZwGCSqGSIb3DQEHAaCCBY0EggWJMIIFhTCCBYEGCyqGSIb3DQEMCgECoIIFMDCCBSwwZgYJKoZIhvcNAQUNMFkwOAYJKoZIhvcNAQUMMCsEFIjW24I+ozzoCFEMhn8SuZB7xRbiAgInEAIBIDAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQGfrR078b4YvLxcRyAef6FwSCBMD6GKxXia8t5mw0U5BhZU89gSOx3WM2N8rNUxK3CgweggHLATeHdPFF8osIE8jO4ny+tfsWY1jMVrReGdSqhSselnmVRu9gf03BtlE8unRa4m5uOYHGAji2v+JvT8x9zb6KXK6O8yUEuGxbBxLXmFmEzCRHMWV6hrQc9Mg4UAvZtASYD3eEqBYEKv2voFthOrFmSQ2LGD54b8alqkqWTjh6SeuCzLWkLGUN77atnMuuBMhSokpbMqx1HYoTvmTC2+xD+4QyHoFQ31TEoS/NVFZApKBrodlA7OfhCJU/cIEQXWiV7YamN+1ROyMS4CAt9/giEfHG8rHnWx5pvJwMox3xA5w0bWBvsuyjjBDuLXk+0S04NTqSJE84DaFm5zhIpthbv04GY4IxARjXnYc9REPv+zxk39CIDnnBQG01/bEvUry3NFw7we0CCURTVJgEglGk3E1BS9ttDDisc9iYeMc0CoZZ8Z1jj0TkD0bY5gxF3q51txYgN0ZW3JKNtZNnudBOhTbsjGbzDjaR6E1H1jK9QIBknQsFGMCb6f/qt/lx9uNOEJu1a7y+g3PXbSvfdwIeylsWziWQe7LilIPM6b9M7FjrGxOsSE6/JIxRisyKE7YcuMeKWTfqraBv2/tGR698gl6ZTSMA2SXQ69ud0YtpIguUVN6HFq9fvR611d82Y33c0kDQsKAvv2+kcRVWmBTOFKj2Jv+TnsMn0yY0gf3Dut+0gyMgJdnL1Y8N7ptIN8mPeiUQQAiY9M8gAIjXM5bfEN+jGiZHfaGuoSxrE2yVxhjZ7dka0fDOZx9iPHYMS+7q4mcjbKJq5UlHaSxV9fI7y0ZujS7rJSaDJ5wLlS+CIXeJWjUPOSyQB7ocSZT+PR7MX4J7HEU29IbwmEFuJImZ0o3S1rt3nXvXBMStJtWdq9sKul1GSmz3UwmjVF6EjJ1rC4VbHwphAPUwcQ7aH757oVszT7QA//MjgpWoMl8a5ybysOTQit3Jdp/odECSUuNtwEGiVAzHNegjgpX6lYfzOWe3q2Earj/+abk/fgz7LWbg+bd2zkOd0a0Fevn68e/2kAbaW/DdB1rVFGHrA/C87pXLZkJxZvr2NHFrzDBeqD794jhMFAwrySt6Z6AE3nUP8eLiqBl8xqEPR7ETfNN68vf6vnHGUtDnZz3sQu3Z8Qun7eErLycGwFduT3qMhfRQNJB8YXJKtDdOqpTpPsPMcUSpo7yPvK3hA686405bdK4Sv3y7ZPlBgTQdWs51KeuUR6ShQ3VRPduHJxFohSydnylpV2NO3SPTEVsay6oanzlFvTXoeMoYHpEFG0TL/XR3nCdxoYnUaBaN0mAhTBt8Wnv8z+c9LFOlt9r78IH+Nn5LQUDDym3psDVSrmY+oabu09COEPVjPP7fqHJVKzoLuNy44s9KzG0WXvXq1suEp6dWadnRWxulrcdRZ6jTefnD066qtZm7EzlbSZlb/TdFZ+0K3/hYNrbTAGE2z/cyQDlhfSpMurgzYlSLcnLfbVO3SOPkBvr3HRb4dwffrD4NDLd8/B0hwGVSl9CXhx+Xuawat+19ozbAmaYG9pyDAn0Z0kJQI4EVskqX6MmQBH/a9ZoqbrtYaMTWdYzZ6054MT4wGQYJKoZIhvcNAQkUMQweCgBpAG0AYQBkAGEwIQYJKoZIhvcNAQkVMRQEElRpbWUgMTc5NDgxMzQ5MDY5MzCCBBEGCSqGSIb3DQEHBqCCBAIwggP+AgEAMIID9wYJKoZIhvcNAQcBMGYGCSqGSIb3DQEFDTBZMDgGCSqGSIb3DQEFDDArBBQx2PFBxUuE89RIugN+Oz2pKuaHaAICJxACASAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEEWgQ+qt7v1OYioptBgUKh+AggOATu28sub011oL3ExJDQ7f2bZKSJPlrSY8qOTH2Oo1VYPC6WtSfaK7+pXpV/XBhD2FyI/PfQGT4c5AivRi5C8WK2YrdIX4no/TCVdSWuDPKG6VJWVHcCIqY+lU5OStQQeuOWfrpWnkn5kmxp0Sbt8G/RJsNC35SCXqRxDt+g05EjeanLXADsdjx5DvAbwMDwrTqeFm5as7pD7MDnTDAmViw6XiqUU71f0busG1W2qbvsoMZbEQTB8n4HmZ1JgqmA8RYzK3tvpJrjiZU+1JCKjnn0KMarIxRshlpU4I/oH1/7jGaW9dmHiqyEGk3UGS/0qxgdrmTjP7K6+maiCyQ4r2rZPJQ/aTq37OYssLzE1LQMo46P/0zwDMDluMDC1XPHrUYBtyZ31nfKquKFSM5c8I2wZMaxu+tpMqbcQw7qzS03z51lTK6vyAujELTDP8CTDeFzQBCDfiLnql1soKWksR/FQB6YoOzj3VrRBKa1vgVTH23vX16T0+paVGVKBWAJssmnhYHaod8Tr1jamU3dIccjeiWl8WbHCzxfHdJ2+XKWsfRSd8kAo4+O9ayNnxWH7QUklteUxUKh9HuwIuZYA9JmgE6kfedKxuf8oZZi5Jxvg1Ia2LuuTbHzSgMJNwnClAxJbrO60eSqt96kmetnscVA0gCTf/dY6AiqIpoByC5rLDv6KTsbT29HnFTC+IwCJ0NVFona3b4JNaCtETCgW9zt4336nFE/O3ELCqT0/dIbb97wkj9Ij/YRVdmhJ2TifNAxYdL7Hqbprjl3162hqrTJgE4P6CBnWDngmAkpahgcQyffb3+G1QCkISiPI3zDfLGWV993zHg7ARZVnOy3SXVh1RKzYVqtb5t8LwB7KefqO/ZL2kCGHyZ3vJMD0Tn3FEhOv7z1IjurgYoyBxtSfQtRkdjyezDwnnfWbkGuldhaGV1tHotb3/Rl+GcB8+RjMDDND6EHXCCTM5P6K4GjwtlxzUO7l+U+nCQc3fQJvnqF/xgRrvKB3sxO82Ti+uk7Kg/kxH/bqQpt5hYS3+92IU+5APC5e6kRfVMbdYahnmwucqbwbKt2AuUNZuAnX1L4ZyViNuQeQg/5KfOFklAfW0YRd6kdHb84n/K9ITr+VzyQCkkJQJndNb2Wy0t49UqrPDbr3oi5yMWlkLUyGhdgUx+wX5l7HMxvqW7KJn4+3Gyd0wTTAxMA0GCWCGSAFlAwQCAQUABCCrU9iFbRg5bgnD+3mSLOypbrqhYfZiDbN9omXmDSgXQQQUPsqxVhR3vOPOvQkfv0yRZ79RQ5ECAicQ' | base64 -d > app/imada.keystore
+          find . -type f | sort
+
+      - name: Compiler l'APK
+        working-directory: imada
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Publier le lien direct pour Downloader
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp imada/app/build/outputs/apk/debug/app-debug.apk IMADA-TV.apk
+          gh release delete imada-tv --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release create imada-tv IMADA-TV.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "IMADA TV v2.0" --notes "Lien Downloader : https://github.com/$GITHUB_REPOSITORY/releases/download/imada-tv/IMADA-TV.apk"
+          echo "LIEN DOWNLOADER : https://github.com/$GITHUB_REPOSITORY/releases/download/imada-tv/IMADA-TV.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IMADA-TV-apk
+          path: IMADA-TV.apk
